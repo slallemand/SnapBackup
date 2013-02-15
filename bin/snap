@@ -1,0 +1,294 @@
+#!/bin/bash
+#
+# Sebastien LALLEMAND
+# slallemand01@gmail.com
+#
+
+Version="2.3"
+
+# 1.0   : initial
+# 2.0   : total code rewrite
+#         configuration file
+#	  local or remote backup
+# 2.1   : adding option for simple replication (no --link-dest in RSYNC_OPTS)
+# 2.1.1 : change the way to close tunnel
+# 2.1.2 : when TRYSSHTUNNEL is yes and we are remote, just pinging RSYNCSERVER before
+# 2.2   : adding command line options 
+#         improve tunnel (check on open and close)
+#         adding SSH_TUNNEL_RSYNC_SERVER in configuration file (now, end of tunnel is not mandatory the rsync server)
+#         RSYNC_USER can be empty
+# 2.3   : LOCAL_FALLBACK functiunality
+#         if you can't contact your rsync server (no network at all), we can rsync locally
+#         Be careful with FS space !
+
+
+## Working in english is better ;)
+
+export LANG=C
+export LC_ALL=C
+
+## what's my name ?
+PRG=snap
+
+############## Functiuns ##############
+Syntaxe () {
+	echo "$PRG [ -c|--config configuration_file ] | [ -h|--help ] | [ -v|--version ]"
+}
+
+OpenTunnel () {
+	echo "$TUNNEL" >> $LOG
+	$TUNNEL >> $LOG 2>&1 &
+
+	#waiting 10 seconds in order ssh can initialized tunnel
+	sleep 10
+
+	#checking if tunnel is there
+	pgrep -f "$TUNNEL" > /dev/null 2>&1
+
+	#if not ... exiting
+	if [ $? -ne 0 ] ; then
+		echo "Unable to open tunnel" >> $LOG
+		return 3
+	else
+		return 0
+	fi
+}
+
+CloseTunnel () {
+	echo "Closing TUNNEL" >> $LOG
+	pgrep -f "$TUNNEL" | xargs kill
+
+	#checking if tunnel is still there
+	pgrep -f "$TUNNEL" > /dev/null 2>&1
+
+	if [ $? -eq 0 ] ; then
+		echo "WARNING : Unable to close tunnel" >> $LOG
+	fi
+}
+
+RemoteBackup () {
+	#RemoteBackup $RSYNC_SERVER $RSYNC_PORT
+
+	if [ -z "${RSYNC_USER}" ] ; then
+		rsync_cmd="${RSYNC} --port=${2} ${RSYNC_OPTS} ${1}::${RSYNC_MODULE}/${DEST_DIR}/"
+	else
+		rsync_cmd="${RSYNC} --port=${2} ${RSYNC_OPTS} ${RSYNC_USER}@${1}::${RSYNC_MODULE}/${DEST_DIR}/"
+	fi
+	
+	echo "Executing : ${rsync_cmd}" >> $LOG
+	                  ${rsync_cmd} >> $LOG 2>&1
+}
+
+LocalFallbackBackup () {
+	if [ "$1" = "test" ] ; then
+		tmp=/tmp/$PRG.$$
+		LOCAL_RSYNC_OPTS=" -a -H --numeric-ids --relative --delete-excluded --exclude-from=${EXCLUDE} --stats ${BACKUP_LIST}"
+
+		#first time execution with dry-run and stats to evaluate space needed
+		rsync_cmd="${RSYNC} --dry-run ${LOCAL_RSYNC_OPTS} ${LOCAL_FALLBACK_DIR}"
+
+		echo "Executing : ${rsync_cmd}" >> $LOG
+		$rsync_cmd > $tmp
+
+		needed=`grep ^"Total transferred file size" $tmp | awk '{print $(NF-1)}'`
+		needed=`echo $needed/1024|bc`
+		available=`df -Pk $LOCAL_FALLBACK_DIR | tail -1 | awk '{print $(NF-2)}'`
+
+		ratio=`echo $available*${LOCAL_FALLBACK_AVAILABLE_PT}|bc|awk -F. '{print $1}'` 
+
+		rm -f $tmp
+		if [ $ratio -lt $needed ] ; then
+			echo "Not enough space to backup (we need $needed KB and only $ratio KB are availble with ratio ${LOCAL_FALLBACK_AVAILABLE_PT})" >> $LOG
+			return 1
+		else
+			echo "Enough space (we need $needed KB and $ratio KB are available with ratio ${LOCAL_FALLBACK_AVAILABLE_PT})" >> $LOG
+			return 0
+		fi
+	else
+		LOCAL_RSYNC_OPTS="-va -H --numeric-ids --relative --delete-excluded --exclude-from=${EXCLUDE} --stats ${BACKUP_LIST}"
+		rsync_cmd="${RSYNC} ${LOCAL_RSYNC_OPTS} ${LOCAL_FALLBACK_DIR}"
+		echo "Executing : ${rsync_cmd}" >> $LOG
+	                          ${rsync_cmd} >> $LOG 2>&1
+		return $?
+	fi
+}
+
+
+### getopts ###
+while [ $# -gt 0 ] 
+do
+	case "$1" in 
+		-c|--config)
+			shift
+			CONF=$1
+			;;
+		-h|--help)
+			Syntaxe 
+			exit 0
+			;;
+		-v|--version)
+			echo "$PRG version $Version"
+			exit 0
+			;;
+		-*|--*)
+			echo "Undefined option"
+			Syntaxe
+			exit 1
+			;;
+	esac
+	shift
+done
+
+## Do we have a configuration file ? (if not defined on command line, /etc/snap.conf wil be used)
+CONF=${CONF:-/usr/local/etc/snap.conf}
+
+if [ ! -r $CONF ] ; then
+	echo "$PRG error : $CONF unreadable or unexistant"
+	exit 2
+else
+	. $CONF
+
+	## Let's initialize some vars 
+	LOG=${LOG:-"/var/log/${PRG}.log"}
+	RSYNC=${RSYNC:-`which rsync`}
+	if [ ! -x ${RSYNC} ] ; then
+		echo "$PRG error : rsync is not executable, not installed or not defined in RSYNC var"
+		exit 2
+	fi
+	RSYNC_PORT=${RSYNC_PORT:-"873"}
+	RSYNC_SIMPLE=${RSYNC_SIMPLE:-"true"}
+	BACKUP_LIST=${BACKUP_LIST:-"/home/"}
+	TRYSSHTUNNEL=${TRYSSHTUNNEL:-"no"}
+	SSH_TUNNEL_USER=${SSH_TUNNEL_USER:-"root"}
+	SSH_TUNNEL_PORT=${SSH_TUNNEL_PORT:-"22"}
+	SSH_TUNNEL_RSYNC_SERVER=${SSH_TUNNEL_RSYNC_SERVER:-"localhost"}
+	LOCAL_FALLBACK=${LOCAL_FALLBACK:-"false"}
+	LOCAL_FALLBACK_AVAILABLE_PT=${LOCAL_FALLBACK_AVAILABLE_PT:-"0.8"}
+fi
+
+
+## Defining the way we can initialize tunnel
+TUNNEL="ssh -i ${SSH_TUNNEL_KEY} -p ${SSH_TUNNEL_PORT} -N -L ${SSH_TUNNEL_LOCALPORT}:${SSH_TUNNEL_RSYNC_SERVER}:${RSYNC_PORT} ${SSH_TUNNEL_USER}@${SSH_TUNNEL_SERVER}"
+
+## rsync options
+if [ -z "${RSYNC_USER}" ] ; then
+	RSYNC_OPTS="--contimeout=10 -va -H --delete --numeric-ids --relative --delete-excluded --exclude-from=${EXCLUDE} --stats ${BACKUP_LIST}"
+else
+	RSYNC_OPTS="--contimeout=10 -va -H --delete --numeric-ids --relative --delete-excluded --exclude-from=${EXCLUDE} --stats ${BACKUP_LIST} --password-file=${RSYNC_PASSWD}"
+fi
+
+## RSYNC_SIMPLE is false when the snap server is configured with rsnapshot (multiples backups with hardlinks)
+if [ "$RSYNC_SIMPLE" = "false" ] ; then
+	DEST_DIR=.sync
+	LINK_DEST=daily.0
+	RSYNC_OPTS="$RSYNC_OPTS --link-dest=/${LINK_DEST}/"
+else
+	DEST_DIR=.
+fi
+
+## dry-run mode
+## but be careful : rsync will execute post-xfer command on snap server (if any configured) even in dry-run !!!
+if [ "$RSYNC_DRYRUN" = "true" ] ; then
+	RSYNC_OPTS="--dry-run $RSYNC_OPTS"
+fi
+
+
+#### MAIN ####
+## Let's go !
+echo "Start $PRG version $Version : `date`" > $LOG
+echo "Configuration file is $CONF" >> $LOG
+echo "Mode TRYSSHTUNNEL is $TRYSSHTUNNEL" >> $LOG
+
+case $TRYSSHTUNNEL in
+	no)
+		RemoteBackup $RSYNC_SERVER $RSYNC_PORT
+		res=$?
+		;;
+
+	yes)
+		echo "Trying direct access" >> $LOG
+
+		#can we ping RSYNC_SERVER ?
+		ping -c 3 ${RSYNC_SERVER} > /dev/null 2>&1
+
+		if [ $? -eq 0 ] ; then
+			RemoteBackup $RSYNC_SERVER $RSYNC_PORT
+			res=$?
+		else
+			#simulate the rc (=35) as there is a rsync timeout
+			echo "Unable to ping $RSYNC_SERVER" >> $LOG
+			res=35
+		fi
+
+		case $res in
+			35)
+				#rc=35 means rsync can't connect daemon (timeout) / maybe we are remote so let's try ssh tunnel
+				echo "Trying to open tunnel" >> $LOG
+				OpenTunnel
+				if [ $? -eq 0 ] ; then
+					RemoteBackup ${SSH_TUNNEL_RSYNC_SERVER} ${SSH_TUNNEL_LOCALPORT}
+					res=$?
+					CloseTunnel
+				else
+					res=3
+				fi
+				;;
+			0)
+				#echo "rsync OK" >> $LOG
+				;;
+			*)
+				echo "Status error (rsync rc is $res)" >> $LOG
+				exit $res
+				;;
+		esac
+		;;
+
+	always)
+		echo "Trying to open tunnel" >> $LOG
+		OpenTunnel
+		RemoteBackup ${SSH_TUNNEL_RSYNC_SERVER} ${SSH_TUNNEL_LOCALPORT}
+		res=$?
+		CloseTunnel
+		;;
+	*)
+		echo "What's this mode ??" >> $LOG
+		echo "Status error (configuration)" >> $LOG
+		exit 2 
+		;;
+esac
+
+if [ $res -eq 0 ] ; then
+	#everything is ok !
+	#end of game :)
+	echo "Status Ok" >> $LOG
+	echo "End : `date`" >> $LOG
+	exit 0
+else
+	if [ ${LOCAL_FALLBACK} = "true" ] ; then
+		echo "LOCAL_FALLBACK is ${LOCAL_FALLBACK} (trying to snap here)" >> $LOG
+		[ ! -d ${LOCAL_FALLBACK_DIR} ] && ( mkdir -p ${LOCAL_FALLBACK_DIR} ; echo "Creating ${LOCAL_FALLBACK_DIR}" >> $LOG )
+		LocalFallbackBackup test
+		if [ $? -eq 0 ] ; then
+			echo "Starting LocalFallbackBackup" >> $LOG
+			LocalFallbackBackup
+			res=$?
+		else
+			echo "Status error (fallback)" >> $LOG
+			exit 99
+		fi
+	else
+		echo "LOCAL_FALLBACK is disabled" >> $LOG
+	fi
+fi	
+
+if [ $res -eq 0 ] ; then
+	#everything is ok !
+	#end of game :)
+	echo "Status Ok" >> $LOG
+	echo "End : `date`" >> $LOG
+	exit 0
+else
+	echo "Status error (rsync rc is $res)" >> $LOG
+	exit $res
+fi
+
