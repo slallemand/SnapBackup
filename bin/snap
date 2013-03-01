@@ -4,7 +4,7 @@
 # slallemand01@gmail.com
 #
 
-Version="2.3"
+Version="2.4"
 
 # 1.0   : initial
 # 2.0   : total code rewrite
@@ -20,6 +20,7 @@ Version="2.3"
 # 2.3   : LOCAL_FALLBACK functiunality
 #         if you can't contact your rsync server (no network at all), we can rsync locally
 #         Be careful with FS space !
+# 2.4   : Exiting when another snap is running (using PID FILE)
 
 
 ## Working in english is better ;)
@@ -29,6 +30,10 @@ export LC_ALL=C
 
 ## what's my name ?
 PRG=snap
+PIDFILE=/var/run/$PRG.pid
+
+#ctrl-c trapping
+trap 'rm -f $PIDFILE' 2 3
 
 ############## Functiuns ##############
 Syntaxe () {
@@ -112,6 +117,14 @@ LocalFallbackBackup () {
 		return $?
 	fi
 }
+
+if [ -r "$PIDFILE" ] ; then
+	echo "Another $PRG is already running"
+	echo "exiting"
+	exit 0
+else
+	echo $$ > $PIDFILE
+fi
 
 
 ### getopts ###
@@ -238,6 +251,7 @@ case $TRYSSHTUNNEL in
 				;;
 			*)
 				echo "Status error (rsync rc is $res)" >> $LOG
+				rm -f $PIDFILE
 				exit $res
 				;;
 		esac
@@ -253,6 +267,7 @@ case $TRYSSHTUNNEL in
 	*)
 		echo "What's this mode ??" >> $LOG
 		echo "Status error (configuration)" >> $LOG
+		rm -f $PIDFILE
 		exit 2 
 		;;
 esac
@@ -262,6 +277,7 @@ if [ $res -eq 0 ] ; then
 	#end of game :)
 	echo "Status Ok" >> $LOG
 	echo "End : `date`" >> $LOG
+	rm -f $PIDFILE
 	exit 0
 else
 	if [ ${LOCAL_FALLBACK} = "true" ] ; then
@@ -274,6 +290,7 @@ else
 			res=$?
 		else
 			echo "Status error (fallback)" >> $LOG
+			rm -f $PIDFILE
 			exit 99
 		fi
 	else
@@ -286,9 +303,11 @@ if [ $res -eq 0 ] ; then
 	#end of game :)
 	echo "Status Ok" >> $LOG
 	echo "End : `date`" >> $LOG
+	rm -f $PIDFILE
 	exit 0
 else
 	echo "Status error (rsync rc is $res)" >> $LOG
+	rm -f $PIDFILE
 	exit $res
 fi
 
