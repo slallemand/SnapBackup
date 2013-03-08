@@ -4,7 +4,7 @@
 # slallemand01@gmail.com
 #
 
-Version="2.4"
+Version="2.4.1"
 
 # 1.0   : initial
 # 2.0   : total code rewrite
@@ -21,6 +21,7 @@ Version="2.4"
 #         if you can't contact your rsync server (no network at all), we can rsync locally
 #         Be careful with FS space !
 # 2.4   : Exiting when another snap is running (using PID FILE)
+# 2.4.1 : PID FILE is now created after options parsing
 
 
 ## Working in english is better ;)
@@ -118,14 +119,6 @@ LocalFallbackBackup () {
 	fi
 }
 
-if [ -r "$PIDFILE" ] ; then
-	echo "Another $PRG is already running"
-	echo "exiting"
-	exit 0
-else
-	echo $$ > $PIDFILE
-fi
-
 
 ### getopts ###
 while [ $# -gt 0 ] 
@@ -151,6 +144,7 @@ do
 	esac
 	shift
 done
+
 
 ## Do we have a configuration file ? (if not defined on command line, /etc/snap.conf wil be used)
 CONF=${CONF:-/usr/local/etc/snap.conf}
@@ -203,6 +197,18 @@ fi
 ## but be careful : rsync will execute post-xfer command on snap server (if any configured) even in dry-run !!!
 if [ "$RSYNC_DRYRUN" = "true" ] ; then
 	RSYNC_OPTS="--dry-run $RSYNC_OPTS"
+fi
+
+if [ -r "$PIDFILE" ] ; then
+	echo "Another $PRG is already running"
+	echo "exiting"
+	exit 0
+else
+	echo $$ 2>/dev/null > $PIDFILE
+	if [ $? -ne 0 ] ; then
+		echo "Unable to create $PIDFILE"
+		exit 1
+	fi
 fi
 
 
