@@ -1,0 +1,37 @@
+Changelog :
+ +=+=+=+
+
+2.4.1 : 
+	PID FILE is now created after options parsing
+
+2.4   : 
+	Exiting when another snap is running (using PID FILE)
+
+2.3   : 
+	LOCAL_FALLBACK functiunality
+        if you can't contact your rsync server (no network at all), we can rsync locally
+        Be careful with FS space !
+
+2.2   : 
+	adding command line options 
+        improve tunnel (check on open and close)
+        adding SSH_TUNNEL_RSYNC_SERVER in configuration file (now, end of tunnel is not mandatory the rsync server)
+        RSYNC_USER can be empty
+
+2.1.2 : 
+	when TRYSSHTUNNEL is yes and we are remote, just pinging RSYNCSERVER before
+
+2.1.1 : 
+	change the way to close tunnel
+
+2.1   : 
+	adding option for simple replication (no --link-dest in RSYNC_OPTS)
+
+2.0   : 
+	total code rewrite
+        configuration file
+        local or remote backup
+
+1.0   : 
+	initial
+
