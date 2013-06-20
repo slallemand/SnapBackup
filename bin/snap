@@ -4,7 +4,7 @@
 # slallemand01@gmail.com
 #
 
-Version="2.4.1"
+Version="2.4.2"
 
 ## Working in english is better ;)
 
@@ -173,6 +173,7 @@ if [ "$RSYNC_SIMPLE" = "false" ] ; then
 	RSYNC_OPTS="$RSYNC_OPTS --link-dest=/${LINK_DEST}/"
 else
 	DEST_DIR=.
+	RSYNC_OPTS="$RSYNC_OPTS --delete-after"
 fi
 
 ## dry-run mode
