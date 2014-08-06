@@ -4,7 +4,7 @@
 # slallemand01@gmail.com
 #
 
-Version="2.4.2"
+Version="2.4.3"
 
 ## Working in english is better ;)
 
@@ -161,9 +161,9 @@ TUNNEL="ssh -i ${SSH_TUNNEL_KEY} -p ${SSH_TUNNEL_PORT} -N -L ${SSH_TUNNEL_LOCALP
 
 ## rsync options
 if [ -z "${RSYNC_USER}" ] ; then
-	RSYNC_OPTS="--contimeout=10 -va -H --delete --numeric-ids --relative --delete-excluded --exclude-from=${EXCLUDE} --stats ${BACKUP_LIST}"
+	RSYNC_OPTS="--contimeout=10 -va -H --delete --numeric-ids --relative --delete-excluded --exclude-from=${EXCLUDE} --stats ${BACKUP_LIST} $RSYNC_USER_OPTS"
 else
-	RSYNC_OPTS="--contimeout=10 -va -H --delete --numeric-ids --relative --delete-excluded --exclude-from=${EXCLUDE} --stats ${BACKUP_LIST} --password-file=${RSYNC_PASSWD}"
+	RSYNC_OPTS="--contimeout=10 -va -H --delete --numeric-ids --relative --delete-excluded --exclude-from=${EXCLUDE} --stats ${BACKUP_LIST} --password-file=${RSYNC_PASSWD} $RSYNC_USER_OPTS"
 fi
 
 ## RSYNC_SIMPLE is false when the snap server is configured with rsnapshot (multiples backups with hardlinks)
